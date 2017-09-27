@@ -10,26 +10,25 @@ const option = {
 };
 
 let chrome;
-chromeLauncher.launch(option)
-	.then(async chrome=>{
-		console.log('mid');
+chromeLauncher
+	.launch(option)
+	.then(chrome => {
 		start(chrome);
-	})
-
-
-
-function start(chrome) {
-	CDP(async(client) => {
-		let page = client.Page;
-		try {
-			await page.enable();
-			await search(client, '木鱼水心', '长发公主');
-		} finally {
-			await client.close();
-			console.log('close');
-			chrome.kill();
-		}
 	});
+
+
+
+async function start(chrome) {
+	let client = await CDP();
+	let page = client.Page;
+	try {
+		await page.enable();
+		await search(client, '木鱼水心', '疯狂动物城');
+	} finally {
+		await client.close();
+		console.log('close');
+		// chrome.kill();
+	}
 }
 
 const bSiteSpaceUrl = 'https://space.bilibili.com/';
@@ -65,11 +64,20 @@ async function search(client, uperName, movieName) {
 	// await timeout(5000);
 	// await wait(runtime,"#submit-video-list .small-item");
 	// await wait(runtime,"#dba");
-	await nodeAppears(client, ".small-item");
+	let {result:{value:isAppear}} = await nodeAppears(client, "#submit-video-list .small-item2");
+	// runtime返回的数据格式如下
+	// {
+	// 	result:{
+	// 		type:string;
+	// 		value:any
+	// 	}
+	// }
+	console.log('isAppear', isAppear);
+	// await nodeAppears(client, ".small-item");
 	console.log('after nodeAppears');
 	await capture(page);
 	console.log('mid last')
-	return await new Promise((resolve)=>{
+	return await new Promise((resolve) => {
 		console.log('complete inner');
 		resolve('complete');
 	});
@@ -91,11 +99,17 @@ function timeout(ms) {
 
 
 
-
-async function nodeAppears(client, selector) {
+async function nodeAppears(client, selector, maxTimeout = 5000) {
 	// browser code to register and parse mutations
-	const browserCode = (selector) => {
+	const browserCode = (selector,maxTimeout) => {
 		return new Promise((fulfill, reject) => {
+			console.log(maxTimeout);
+			console.log(new Date());
+			let t = setTimeout(() => {
+				console.log(new Date());
+				fulfill(false);
+			}, maxTimeout);
+
 			new MutationObserver((mutations, observer) => {
 				// add all the new nodes
 				const nodes = [];
@@ -103,11 +117,12 @@ async function nodeAppears(client, selector) {
 					nodes.push(...mutation.addedNodes);
 				});
 				// fulfills if at least one node matches the selector
-				nodes.some(node=>{
+				nodes.some(node => {
 
-					if(node.matches && node.matches(selector)){
-						console.log(node,selector);
-						fulfill();
+					if (node.matches && node.matches(selector)) {
+						console.log(node, selector);
+						fulfill(true);
+						clearTimeout(t);
 						return true;
 					}
 				});
@@ -125,8 +140,8 @@ async function nodeAppears(client, selector) {
 	const {
 		Runtime
 	} = client;
-	await Runtime.evaluate({
-		expression: `(${browserCode})(${JSON.stringify(selector)})`,
+	return await Runtime.evaluate({
+		expression: `(${browserCode})(${JSON.stringify(selector)},${maxTimeout})`,
 		awaitPromise: true
 	});
 }
