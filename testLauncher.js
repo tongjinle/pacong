@@ -1,6 +1,7 @@
 const chromeLauncher = require('chrome-launcher');
 const CDP = require('chrome-remote-interface');
 const fs = require('fs');
+const _ = require('underscore');
 
 const option = {
 	port: 9222,
@@ -19,15 +20,35 @@ chromeLauncher
 
 
 async function start(chrome) {
+	let startTimestmap = Date.now();
+	let isSucc = true;
+
 	let client = await CDP();
-	let page = client.Page;
+	let {Page} = client;
 	try {
-		await page.enable();
-		await search(client, '木鱼水心', '疯狂动物城');
+		await Page.enable();
+		// await search(client, '木鱼水心', '疯狂动物城');
+		let dict = getUperNameDict();
+		// await _.each(dict,async (url,name)=>{
+		// 	console.log(name);
+		// 	return await searchPage(client,name);
+		// });
+		for (let key in dict) {
+			let name = key;
+			// await searchPage(client,name);
+			await searchUper(client,name);
+		}
+	}catch(e){
+		console.log('err:',e);
+		isSucc = false;
 	} finally {
 		await client.close();
+		if(isSucc){
+			let endTimestamp = Date.now();
+			console.log('elapsed time:',endTimestamp - startTimestmap);
+		}
 		console.log('close');
-		// chrome.kill();
+		chrome.kill();
 	}
 }
 
@@ -75,6 +96,9 @@ async function search(client, uperName, movieName) {
 	console.log('isAppear', isAppear);
 	// await nodeAppears(client, ".small-item");
 	console.log('after nodeAppears');
+
+	let 
+
 	await capture(page);
 	console.log('mid last')
 	return await new Promise((resolve) => {
@@ -91,7 +115,7 @@ async function capture(page) {
 
 }
 
-function timeout(ms) {
+function delay(ms) {
 	return new Promise((resolve) => {
 		setTimeout(resolve, ms);
 	});
@@ -100,13 +124,14 @@ function timeout(ms) {
 
 
 async function nodeAppears(client, selector, maxTimeout = 5000) {
+	console.log('nodeAppears');
 	// browser code to register and parse mutations
-	const browserCode = (selector,maxTimeout) => {
+	var browserCode = (selector,maxTimeout) => {
 		return new Promise((fulfill, reject) => {
 			console.log(maxTimeout);
 			console.log(new Date());
 			let t = setTimeout(() => {
-				console.log(new Date());
+				console.log('out time:',new Date());
 				fulfill(false);
 			}, maxTimeout);
 
@@ -144,4 +169,138 @@ async function nodeAppears(client, selector, maxTimeout = 5000) {
 		expression: `(${browserCode})(${JSON.stringify(selector)},${maxTimeout})`,
 		awaitPromise: true
 	});
+}
+
+// 木鱼水心的影评地址
+// http://space.bilibili.com/927587#!/channel/detail?cid=9860
+
+async function fetchInfo(client,browserCode){
+	const {Runtime} = client;
+	let result = await Runtime.evaluate({
+		expression:`(${browserCode})()`,
+		// awaitPromise: true
+	});
+	console.log('result',result);
+	// fs.writeFileSync('log.json',result.result.value);
+	return result;
+}
+
+// 获取up主的空间信息
+// 此处的代码可以当成在浏览器的代码,因为这个代码会被嵌到runtime中去
+function fetchUper(){
+	let nodes = document.querySelectorAll('#page-channel .video-list .small-item');
+	let result = [...nodes].map(node=>{
+		let imgUrl = node.querySelector('a.cover img').getAttribute('src');
+		let videoUrl = node.querySelector('a.title').getAttribute('href');
+		let name = node.querySelector('a.title').innerHTML;
+		let a0 = node.querySelector('a.cover');
+		let ret = {
+			name,
+			videoUrl,
+			imgUrl
+		};
+		// console.log(ret);
+		return ret;
+	});
+	return JSON.stringify(result);
+}
+
+function fetchPageCount(){
+	let nodes = document.querySelectorAll('#page-channel .sp-pager .sp-pager-item');
+	let lastNode = nodes.length?nodes[nodes.length-1]:undefined;
+	console.log({lastNode});
+	let ret = lastNode ? lastNode.querySelector('a').innerHTML-0 : undefined;
+	return ret;
+}
+
+// pageIndex从0开始
+// page从1开始
+async function searchPage(client,uperName,pageIndex=0){
+	let {Page} = client;
+	let url = `${getUrlByUperName(uperName)}&order=0&page=${pageIndex+1}&rnd=${Math.random()}`;
+	// url = 'http://www.baidu.com';
+	console.log(url);
+	await Page.enable();
+	// Page.reload({ignoreCache:true});
+	await Page.navigate({url});
+	await Page.loadEventFired();
+	console.log('after loadEventFired');
+	// 等待
+	let {result:{value:isAppear}} = await nodeAppears(client, "#page-channel .video-list .small-item");
+	console.log({isAppear});
+	if(isAppear){
+		await delay(5000);
+		let info = await fetchInfo(client,fetchUper);
+		await client.close();
+		return info;
+	}
+	console.log('searchPage:page fail');
+	return 'page fail';
+}
+
+// 查询
+async function searchUper(client,uperName){
+	let {Page} = client;
+	let url = `${getUrlByUperName(uperName)}`;
+	let data = [];
+
+	await Page.navigate({url});
+	await Page.loadEventFired();
+
+	// 找到总共的页数
+	let pageCount;
+	{
+		let {result:{value:isAppear}} = await nodeAppears(client, "#page-channel .sp-pager .sp-pager-item");
+
+	// console.log({isAppear});
+		if(isAppear){
+	// 	await delay(5000);
+			let result = await fetchInfo(client,fetchPageCount);
+			pageCount = result.result.value;
+		}else{
+			pageCount = 1;
+		}
+
+	}
+	// 	if(!pageCount){
+	// 		console.log('pageCount need enough delay');
+	// 		throw 'can not find pageCount';
+	// 	}
+	// }else{
+	// 	pageCount = 1;
+	// }
+
+	// pageCount=1;
+	console.log({pageCount});
+	// return;
+	try{
+		for(let i=0;i<pageCount;i++){
+			let target = await CDP.New();
+			let cli = await CDP(target);
+			let result = await searchPage(cli,uperName,i);
+			// console.log(result);
+			let value =JSON.parse(result.result.value);
+			data.push(...value);
+		}
+		fs.writeFileSync('log.json',JSON.stringify(data));
+	}
+	catch(e){
+		console.log('in searchUper err:',e);
+		throw e;
+	}
+
+
+}
+
+function getUrlByUperName(uperName){
+	let dict =getUperNameDict();
+	return dict[uperName];
+}
+
+function getUperNameDict(){
+	let dict = {
+		// '木鱼水心':'http://space.bilibili.com/927587#!/channel/detail?cid=9860'
+		'木鱼水心':'http://space.bilibili.com/927587#!/channel/detail?cid=8536'
+	};
+	return dict;
 }
