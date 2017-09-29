@@ -3,10 +3,13 @@ const CDP = require('chrome-remote-interface');
 const fs = require('fs');
 const _ = require('underscore');
 
+
+// let headless = false;
+let headless = true;
 const option = {
 	port: 9222,
 	chromeFlags: [
-		'--headless'
+		headless ? '--headless': ''
 	]
 };
 
@@ -48,7 +51,9 @@ async function start(chrome) {
 			console.log('elapsed time:',endTimestamp - startTimestmap);
 		}
 		console.log('close');
-		chrome.kill();
+		if(headless){
+			chrome.kill();
+		}
 	}
 }
 
@@ -124,17 +129,45 @@ function delay(ms) {
 
 
 async function nodeAppears(client, selector, maxTimeout = 5000) {
-	console.log('nodeAppears');
+	console.log('nodeAppears',selector);
 	// browser code to register and parse mutations
 	var browserCode = (selector,maxTimeout) => {
+		return new Promise(resolve=>{
+			// 200毫秒探测一次
+			let interval = 200;
+			let elapsed = 0;
+			let t = setInterval(()=>{
+				let node = document.querySelector(selector);
+				if(node){
+					clearInterval(t);
+					resolve(true);
+					return;
+				}
+				elapsed+=interval;
+				if(elapsed>=maxTimeout){
+					clearInterval(t);
+					resolve(false);
+					return;
+				}
+			},interval);
+		});
 		return new Promise((fulfill, reject) => {
+
+			// 本来就存在
+			if(document.querySelector(querySelector)){
+				fulfill(true);
+				return;
+			}
+
 			console.log(maxTimeout);
 			console.log(new Date());
+			// 超时设置
 			let t = setTimeout(() => {
 				console.log('out time:',new Date());
 				fulfill(false);
 			}, maxTimeout);
 
+			// 观察者
 			new MutationObserver((mutations, observer) => {
 				// add all the new nodes
 				const nodes = [];
@@ -217,7 +250,7 @@ function fetchPageCount(){
 // page从1开始
 async function searchPage(client,uperName,pageIndex=0){
 	let {Page} = client;
-	let url = `${getUrlByUperName(uperName)}&order=0&page=${pageIndex+1}&rnd=${Math.random()}`;
+	let url = `${getUrlByUperName(uperName)}&order=0&page=${pageIndex+1}`;
 	// url = 'http://www.baidu.com';
 	console.log(url);
 	await Page.enable();
@@ -226,16 +259,17 @@ async function searchPage(client,uperName,pageIndex=0){
 	await Page.loadEventFired();
 	console.log('after loadEventFired');
 	// 等待
-	let {result:{value:isAppear}} = await nodeAppears(client, "#page-channel .video-list .small-item");
+	// 一直追到img,这样去节约"延迟"
+	let {result:{value:isAppear}} = await nodeAppears(client, "#page-channel .video-list .small-item a.cover img",10*1000);
 	console.log({isAppear});
 	if(isAppear){
-		await delay(5000);
+		// await delay(5000);
 		let info = await fetchInfo(client,fetchUper);
 		await client.close();
 		return info;
 	}
 	console.log('searchPage:page fail');
-	return 'page fail';
+	throw 'page fail';
 }
 
 // 查询
