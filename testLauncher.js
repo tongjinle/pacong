@@ -2,15 +2,23 @@ const chromeLauncher = require('chrome-launcher');
 const CDP = require('chrome-remote-interface');
 const fs = require('fs');
 const _ = require('underscore');
+const URL = require('url');
 
 
 // let headless = false;
 let headless = true;
+let chromeFlags = [];
+let isBlockRequest = false;
+
+if(headless){
+	chromeFlags.push('--headless');
+	chromeFlags.push('--disable-gpu');
+	// isBlockRequest = true;
+}
+
 const option = {
 	port: 9222,
-	chromeFlags: [
-		headless ? '--headless': ''
-	]
+	chromeFlags
 };
 
 let chrome;
@@ -27,19 +35,49 @@ async function start(chrome) {
 	let isSucc = true;
 
 	let client = await CDP();
-	let {Page} = client;
+	let {Page,Network} = client;
+
 	try {
 		await Page.enable();
+		await Network.enable();
+		if(isBlockRequest){
+			let shallNotPass = (request)=>{
+			    const {pathname} = URL.parse(request.url);
+			    return pathname.match(/\.(css|png|svg|webp|jpeg|jpg|gif)$/);
+			};
+
+		    Network.requestIntercepted(({interceptionId, request}) => {
+		        // perform a test against the intercepted request
+		        let blocked = shallNotPass(request);
+		        if(blocked){
+			        console.log(`- ${blocked ? 'BLOCK' : 'ALLOW'} ${request.url}`);
+		        	
+		        }
+		        // decide whether allow or block the request
+		        Network.continueInterceptedRequest({
+		            interceptionId,
+		            errorReason: blocked ? 'Aborted' : undefined
+		        });
+		    });
+			
+			// enable request interception
+	        await Network.setRequestInterceptionEnabled({enabled: true});
+	        // disable cache
+	        await Network.setCacheDisabled({cacheDisabled: true});
+		}
 		// await search(client, '木鱼水心', '疯狂动物城');
 		let dict = getUperNameDict();
 		// await _.each(dict,async (url,name)=>{
 		// 	console.log(name);
 		// 	return await searchPage(client,name);
 		// });
+		let data = {};
 		for (let key in dict) {
 			let name = key;
 			// await searchPage(client,name);
-			await searchUper(client,name);
+			let userData = await searchUper(client,name);
+			data[name] = userData
+			fs.writeFileSync('log.json',JSON.stringify(data));
 		}
 	}catch(e){
 		console.log('err:',e);
@@ -57,10 +95,7 @@ async function start(chrome) {
 	}
 }
 
-const bSiteSpaceUrl = 'https://space.bilibili.com/';
-const dict = {
-	'木鱼水心': '927587#!'
-};
+
 
 async function search(client, uperName, movieName) {
 	let page = client.Page;
@@ -139,6 +174,7 @@ async function nodeAppears(client, selector, maxTimeout = 5000) {
 			let t = setInterval(()=>{
 				let node = document.querySelector(selector);
 				if(node){
+					console.log({node});
 					clearInterval(t);
 					resolve(true);
 					return;
@@ -213,7 +249,7 @@ async function fetchInfo(client,browserCode){
 		expression:`(${browserCode})()`,
 		// awaitPromise: true
 	});
-	console.log('result',result);
+	// console.log('result',result);
 	// fs.writeFileSync('log.json',result.result.value);
 	return result;
 }
@@ -221,7 +257,7 @@ async function fetchInfo(client,browserCode){
 // 获取up主的空间信息
 // 此处的代码可以当成在浏览器的代码,因为这个代码会被嵌到runtime中去
 function fetchUper(){
-	let nodes = document.querySelectorAll('#page-channel .video-list .small-item');
+	let nodes = document.querySelectorAll('.small-item');
 	let result = [...nodes].map(node=>{
 		let imgUrl = node.querySelector('a.cover img').getAttribute('src');
 		let videoUrl = node.querySelector('a.title').getAttribute('href');
@@ -239,7 +275,7 @@ function fetchUper(){
 }
 
 function fetchPageCount(){
-	let nodes = document.querySelectorAll('#page-channel .sp-pager .sp-pager-item');
+	let nodes = document.querySelectorAll('.sp-pager .sp-pager-item');
 	let lastNode = nodes.length?nodes[nodes.length-1]:undefined;
 	console.log({lastNode});
 	let ret = lastNode ? lastNode.querySelector('a').innerHTML-0 : undefined;
@@ -250,7 +286,7 @@ function fetchPageCount(){
 // page从1开始
 async function searchPage(client,uperName,pageIndex=0){
 	let {Page} = client;
-	let url = `${getUrlByUperName(uperName)}&order=0&page=${pageIndex+1}`;
+	let url = getUrlByUperName(uperName).replace(/PAGE_HOLDER/,pageIndex+1);
 	// url = 'http://www.baidu.com';
 	console.log(url);
 	await Page.enable();
@@ -260,7 +296,7 @@ async function searchPage(client,uperName,pageIndex=0){
 	console.log('after loadEventFired');
 	// 等待
 	// 一直追到img,这样去节约"延迟"
-	let {result:{value:isAppear}} = await nodeAppears(client, "#page-channel .video-list .small-item a.cover img",10*1000);
+	let {result:{value:isAppear}} = await nodeAppears(client, ".small-item a.cover img",10*1000);
 	console.log({isAppear});
 	if(isAppear){
 		// await delay(5000);
@@ -278,17 +314,17 @@ async function searchUper(client,uperName){
 	let url = `${getUrlByUperName(uperName)}`;
 	let data = [];
 
+
 	await Page.navigate({url});
 	await Page.loadEventFired();
 
 	// 找到总共的页数
 	let pageCount;
 	{
-		let {result:{value:isAppear}} = await nodeAppears(client, "#page-channel .sp-pager .sp-pager-item");
-
-	// console.log({isAppear});
+		let {result:{value:isAppear}} = await nodeAppears(client, ".sp-pager .sp-pager-item",10000);
+		console.log({isAppear});
 		if(isAppear){
-	// 	await delay(5000);
+			await delay(1000);
 			let result = await fetchInfo(client,fetchPageCount);
 			pageCount = result.result.value;
 		}else{
@@ -308,7 +344,9 @@ async function searchUper(client,uperName){
 	console.log({pageCount});
 	// return;
 	try{
+		let arr = [];
 		for(let i=0;i<pageCount;i++){
+			await delay(2000);
 			let target = await CDP.New();
 			let cli = await CDP(target);
 			let result = await searchPage(cli,uperName,i);
@@ -316,7 +354,8 @@ async function searchUper(client,uperName){
 			let value =JSON.parse(result.result.value);
 			data.push(...value);
 		}
-		fs.writeFileSync('log.json',JSON.stringify(data));
+		// await Promise.all(arr);
+		return data;
 	}
 	catch(e){
 		console.log('in searchUper err:',e);
@@ -334,7 +373,22 @@ function getUrlByUperName(uperName){
 function getUperNameDict(){
 	let dict = {
 		// '木鱼水心':'http://space.bilibili.com/927587#!/channel/detail?cid=9860'
-		'木鱼水心':'http://space.bilibili.com/927587#!/channel/detail?cid=8536'
+		'谷阿莫':'http://space.bilibili.com/8578857#!/video?order=0&page=PAGE_HOLDER',
+		'木鱼水心':'http://space.bilibili.com/927587#!/channel/detail?cid=8536&order=0&page=PAGE_HOLDER',
 	};
 	return dict;
+}
+
+function getHashParam(url){
+	let {hash}= URL.parse(url);
+	let [basic,paramStr] = hash.split('?');
+	let param = {};
+	if(paramStr){
+		let arr = paramStr.split('&');
+		arr.forEach(n=>{
+			let [key,value] = n.split('=');
+			param[key] = value;
+		});
+	}
+	return {basic,param};
 }
