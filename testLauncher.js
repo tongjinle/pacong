@@ -137,7 +137,6 @@ async function search(client, uperName, movieName) {
 	// await nodeAppears(client, ".small-item");
 	console.log('after nodeAppears');
 
-	let 
 
 	await capture(page);
 	console.log('mid last')
