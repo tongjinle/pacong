@@ -26,12 +26,6 @@ class Pacong {
 
         this.chrome = await chromeLauncher.launch(option);
 
-        // let url = 'http://cl.giit.us/read.php?tid=2652702&page=PAGE_HOLDER';
-        // let url = 'http://cl.giit.us/htm_data/20/1709/2652702.html';
-        // let url = 'https://ss.postcc.us/htm_data/20/1709/2672573.html';
-        let url = 'https://ss.postcc.us/htm_data/20/1709/2652702.html';
-        // let url = 'https://ss.postcc.us/htm_data/20/1709/2650549.html';
-        // let url = 'https://ss.postcc.us/htm_data/20/1709/2654677.html';
         let client = await CDP();
         try {
             let {
@@ -50,14 +44,25 @@ class Pacong {
             } = this.script;
 
             let list = await fetchList(client, basicUrl);
-            // list = list.slice(0,10);
+            console.log(list);
+            // return;
+            // list = list.slice(120);
 
             // let list = ['https://ss.postcc.us/htm_data/20/1710/2690980.html'];
 
             for (let i = 0; i < list.length; i++) {
                 let url = list[i];
                 let data = await fetchSingle(client, url);
-                processData(data);
+                try{
+                    processData(data);
+                    
+                }
+                catch(e){
+                    continue;
+                }
+                finally{
+                    
+                }
                 // console.log(data);
             }
         } catch (e) {
@@ -88,9 +93,9 @@ class Pacong {
 }
 
 // 文学
-let wx = require('./wx');
+let script = require('./h18comic');
 let headless = true;
 // let headless = false;
-let pc = new Pacong(wx, headless);
+let pc = new Pacong(script, headless);
 pc.run();
 
