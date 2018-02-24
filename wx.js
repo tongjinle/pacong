@@ -241,7 +241,8 @@ function processData(data){
     fs.writeFileSync(`novel/${data.title}.txt`,data.content,'utf-8');
 }
 
-let basicUrl = 'https://ss.postcc.us/thread0806.php?fid=20';
+// let basicUrl = 'https://ss.postcc.us/thread0806.php?fid=20';
+let basicUrl = 'https://pp.wedid.us/thread0806.php?fid=20';
 
 
 let wx = {

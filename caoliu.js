@@ -93,7 +93,8 @@ class Pacong {
 }
 
 // 文学
-let script = require('./h18comic');
+// let script = require('./h18comic');
+let script = require('./wx');
 let headless = true;
 // let headless = false;
 let pc = new Pacong(script, headless);
